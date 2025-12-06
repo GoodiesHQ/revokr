@@ -8,6 +8,15 @@
 *.so
 *.dylib
 
+# Any certs, keys, or crls used for test
+*.pem
+*.crt
+*.key
+*.csr
+
+serials.txt
+ignore.txt
+
 # Test binary, built with `go test -c`
 *.test
 
