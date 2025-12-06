@@ -8,11 +8,14 @@
 *.so
 *.dylib
 
+dist/
+
 # Any certs, keys, or crls used for test
 *.pem
 *.crt
 *.key
 *.csr
+*.crl
 
 serials.txt
 ignore.txt
