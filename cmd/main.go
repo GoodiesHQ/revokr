@@ -71,6 +71,11 @@ func init() {
 				Aliases: []string{"p"},
 				Usage:   "Password for the issuing certificate private key, if it is encrypted.",
 			},
+			&cli.BoolFlag{
+				Name:    "password-prompt",
+				Usage:   "Prompt for the password for the issuing certificate private key, if it is encrypted. (overrides --password/-p)",
+				Aliases: []string{"P"},
+			},
 			&cli.StringFlag{
 				Name:    "serials",
 				Aliases: []string{"s"},
@@ -154,7 +159,12 @@ func cmdCreate(_ context.Context, c *cli.Command) error {
 		return cli.Exit(fmt.Sprintf("failed to parse issuer certificate: %v", err), 1)
 	}
 
-	key, err := util.ParsePrivateSigner(issuerKeyPath, c.String("password"))
+	password := c.String("password")
+	if c.Bool("password-prompt") {
+		password, err = util.PromptPassword("Enter the private key password")
+	}
+
+	key, err := util.ParsePrivateSigner(issuerKeyPath, password)
 	if err != nil {
 		return cli.Exit(fmt.Sprintf("failed to parse issuer private key: %v", err), 1)
 	}
