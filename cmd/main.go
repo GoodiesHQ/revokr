@@ -3,10 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"os"
 
 	"github.com/goodieshq/revokr/pkg/crl"
-	"github.com/goodieshq/revokr/pkg/utils"
+	"github.com/goodieshq/revokr/pkg/util"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v3"
@@ -36,27 +37,39 @@ func init() {
 			&cli.StringFlag{
 				Name:    "out",
 				Aliases: []string{"o"},
-				Usage:   "Output file to write results to (default: stdout)",
+				Usage:   "Output file path to write the generated CRL to.",
 			},
 			&cli.StringFlag{
-				Name:  "number",
-				Usage: "CRL number to use. If --extend/-x is used and finds a valid CRL with a positive CRL number, this value is ignored",
-				Value: "1",
+				Name:    "number",
+				Usage:   "CRL number to use (in decimel). If not specified, defaults to 1 or increments the highest CRL number found in any extended CRLs.",
+				Aliases: []string{"n"},
+				Value:   "",
+				Validator: func(s string) error {
+					if _, ok := new(big.Int).SetString(s, 10); !ok {
+						return cli.Exit("invalid CRL number, must be a valid decimal number", 1)
+					}
+					return nil
+				},
 			},
 			&cli.StringSliceFlag{
 				Name:    "extend",
 				Aliases: []string{"x"},
-				Usage:   "Path to one or more existing CRLs to copy and extend. The new CRL inherets all revoked serials from each and increments the CRL number accordingly (ignores --number/-n flag)",
+				Usage:   "Path to existing CRL to copy and extend. The new CRL inherets all revoked serials except those in the ignore list.",
 			},
 			&cli.StringFlag{
 				Name:    "crt",
 				Aliases: []string{"c"},
-				Usage:   "issuing certificate file",
+				Usage:   "Path to the issuing certificate file.",
 			},
 			&cli.StringFlag{
 				Name:    "key",
 				Aliases: []string{"k"},
-				Usage:   "issuing certificate private key file",
+				Usage:   "Path to the issuing certificate private key file.",
+			},
+			&cli.StringFlag{
+				Name:    "password",
+				Aliases: []string{"p"},
+				Usage:   "Password for the issuing certificate private key, if it is encrypted.",
 			},
 			&cli.StringFlag{
 				Name:    "serials",
@@ -74,10 +87,10 @@ func init() {
 			},
 			&cli.StringFlag{
 				Name:    "this-update",
-				Aliases: []string{"t"},
-				Usage:   "set the 'this update' time for the CRL (RFC3339 format). If not specified, uses the NotBefore time of the issuing certificate",
+				Aliases: []string{"tu", "T"},
+				Usage:   "Set the 'this update' time for the CRL (RFC3339 format). If not specified, uses the NotBefore time of the issuing certificate.",
 				Validator: func(s string) error {
-					_, err := utils.ParseTime(s)
+					_, err := util.ParseTime(s)
 					if err != nil {
 						return cli.Exit(fmt.Sprintf("invalid time format for --this-update/-t: %v", err), 1)
 					}
@@ -86,10 +99,10 @@ func init() {
 			},
 			&cli.StringFlag{
 				Name:    "next-update",
-				Aliases: []string{"n"},
-				Usage:   "set the 'next update' time for the CRL (RFC3339 format). If not specified, uses the NotAfter time of the issuing certificate",
+				Aliases: []string{"nu", "N"},
+				Usage:   "Set the 'next update' time for the CRL (RFC3339 format). If not specified, uses the NotAfter time of the issuing certificate",
 				Validator: func(s string) error {
-					_, err := utils.ParseTime(s)
+					_, err := util.ParseTime(s)
 					if err != nil {
 						return cli.Exit(fmt.Sprintf("invalid time format for --next-update/-n: %v", err), 1)
 					}
@@ -102,7 +115,10 @@ func init() {
 
 func main() {
 	if err := app.Run(context.Background(), os.Args); err != nil {
-		// log.Fatal().Err(err).Msg("application error")
+		if errExit, ok := err.(cli.ExitCoder); ok {
+			os.Exit(errExit.ExitCode())
+		}
+		log.Fatal().Err(err).Msg("application error")
 	}
 }
 
@@ -112,7 +128,7 @@ func cmdCreate(_ context.Context, c *cli.Command) error {
 
 	serialsPath := c.String("serials")
 	if serialsPath != "" {
-		serialsInclude, err = utils.ReadSerialNumbersFromFile(serialsPath)
+		serialsInclude, err = util.ReadSerialNumbersFromFile(serialsPath)
 		if err != nil {
 			return cli.Exit(fmt.Sprintf("failed to read serials file: %v", err), 1)
 		}
@@ -120,7 +136,7 @@ func cmdCreate(_ context.Context, c *cli.Command) error {
 
 	ignorePath := c.String("ignore")
 	if ignorePath != "" {
-		serialsIgnore, err = utils.ReadSerialNumbersFromFile(c.String("ignore"))
+		serialsIgnore, err = util.ReadSerialNumbersFromFile(c.String("ignore"))
 		if err != nil {
 			return cli.Exit(fmt.Sprintf("failed to read ignore file: %v", err), 1)
 		}
@@ -133,22 +149,26 @@ func cmdCreate(_ context.Context, c *cli.Command) error {
 		return cli.Exit("issuer certificate and key paths must be specified with --crt/-c and --key/-k", 1)
 	}
 
-	crt, err := utils.ParseCertificate(issuerCrtPath)
+	crt, err := util.ParseCertificate(issuerCrtPath)
 	if err != nil {
 		return cli.Exit(fmt.Sprintf("failed to parse issuer certificate: %v", err), 1)
 	}
 
-	key, err := utils.ParsePrivateSigner(issuerKeyPath)
+	key, err := util.ParsePrivateSigner(issuerKeyPath, c.String("password"))
 	if err != nil {
 		return cli.Exit(fmt.Sprintf("failed to parse issuer private key: %v", err), 1)
 	}
 
-	updateThisStr, err := utils.ParseTime(c.String("this-update"))
+	if err := util.VerifyCrtKeyMatch(crt, key); err != nil {
+		return cli.Exit(fmt.Sprintf("issuer certificate and private key do not match: %v", err), 1)
+	}
+
+	updateThisStr, err := util.ParseTime(c.String("this-update"))
 	if err != nil {
 		return cli.Exit(fmt.Sprintf("failed to parse this-update time: %v", err), 1)
 	}
 
-	updateNextStr, err := utils.ParseTime(c.String("next-update"))
+	updateNextStr, err := util.ParseTime(c.String("next-update"))
 	if err != nil {
 		return cli.Exit(fmt.Sprintf("failed to parse next-update time: %v", err), 1)
 	}
@@ -159,8 +179,17 @@ func cmdCreate(_ context.Context, c *cli.Command) error {
 		return cli.Exit(fmt.Sprintf("failed to extract revocation entries from existing CRLs: %v", err), 1)
 	}
 
-	if crlNumber == -1 {
-		crlNumber = int64(c.Uint64("number"))
+	var numberStr = c.String("number")
+
+	if numberStr != "" {
+		// if a CRL number is explicitly provided, use that
+		crlNumber, _ = new(big.Int).SetString(numberStr, 10)
+	} else if crlNumber == nil || crlNumber.Cmp(big.NewInt(-1)) == 0 {
+		// no valid CRL number found in extended CRLs, use default of 1
+		crlNumber = big.NewInt(1)
+	} else {
+		// increment the highest CRL number found in the extended CRLs
+		crlNumber.Add(crlNumber, big.NewInt(1))
 	}
 
 	outPath := c.String("out")

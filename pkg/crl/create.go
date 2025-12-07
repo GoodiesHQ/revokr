@@ -17,19 +17,12 @@ type CreateCRLParams struct {
 	Entries        []x509.RevocationListEntry
 	OutPath        string
 	OutPEM         bool
-	CRLNumber      int64
+	CRLNumber      *big.Int
 	ThisUpdate     time.Time
 	NextUpdate     time.Time
 }
 
 func CreateCRL(crt *x509.Certificate, key crypto.Signer, params *CreateCRLParams) error {
-	var crlNumber int64
-	if params.CRLNumber >= 0 {
-		crlNumber = params.CRLNumber
-	} else {
-		crlNumber = 1
-	}
-
 	var thisUpdate time.Time
 	if params.ThisUpdate.IsZero() {
 		thisUpdate = crt.NotBefore
@@ -66,7 +59,7 @@ func CreateCRL(crt *x509.Certificate, key crypto.Signer, params *CreateCRLParams
 	}
 
 	crlTemplate := &x509.RevocationList{
-		Number:                    new(big.Int).SetInt64(crlNumber),
+		Number:                    params.CRLNumber,
 		SignatureAlgorithm:        crt.SignatureAlgorithm,
 		RevokedCertificateEntries: revokedCerts,
 		ThisUpdate:                thisUpdate,
