@@ -162,6 +162,9 @@ func cmdCreate(_ context.Context, c *cli.Command) error {
 	password := c.String("password")
 	if c.Bool("password-prompt") {
 		password, err = util.PromptPassword("Enter the private key password")
+		if err != nil {
+			return cli.Exit(fmt.Sprintf("failed to read private key password: %v", err), 1)
+		}
 	}
 
 	key, err := util.ParsePrivateSigner(issuerKeyPath, password)
