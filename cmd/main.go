@@ -131,6 +131,7 @@ func cmdCreate(_ context.Context, c *cli.Command) error {
 	var serialsInclude, serialsIgnore []string
 	var err error
 
+	// Read serial numbers of certificates to include in the CRL
 	serialsPath := c.String("serials")
 	if serialsPath != "" {
 		serialsInclude, err = util.ReadSerialNumbersFromFile(serialsPath)
@@ -139,6 +140,7 @@ func cmdCreate(_ context.Context, c *cli.Command) error {
 		}
 	}
 
+	// Read serial numbers of certificates to ignore in the CRL (removes from extended CRLs)
 	ignorePath := c.String("ignore")
 	if ignorePath != "" {
 		serialsIgnore, err = util.ReadSerialNumbersFromFile(c.String("ignore"))
@@ -147,6 +149,7 @@ func cmdCreate(_ context.Context, c *cli.Command) error {
 		}
 	}
 
+	// Parse issuer certificate and private key
 	issuerCrtPath := c.String("crt")
 	issuerKeyPath := c.String("key")
 
@@ -172,9 +175,12 @@ func cmdCreate(_ context.Context, c *cli.Command) error {
 		return cli.Exit(fmt.Sprintf("failed to parse issuer private key: %v", err), 1)
 	}
 
+	// Verify that the provided certificate and private key actually match
 	if err := util.VerifyCrtKeyMatch(crt, key); err != nil {
 		return cli.Exit(fmt.Sprintf("issuer certificate and private key do not match: %v", err), 1)
 	}
+
+	// Parse this-update and next-update times
 
 	updateThisStr, err := util.ParseTime(c.String("this-update"))
 	if err != nil {
@@ -186,14 +192,15 @@ func cmdCreate(_ context.Context, c *cli.Command) error {
 		return cli.Exit(fmt.Sprintf("failed to parse next-update time: %v", err), 1)
 	}
 
+	// Extract existing revocation entries from CRLs, ignore serials in the ignore list
 	extendPaths := c.StringSlice("extend")
 	crlNumber, entries, err := crl.ExtractRevocationEntries(serialsIgnore, extendPaths...)
 	if err != nil {
 		return cli.Exit(fmt.Sprintf("failed to extract revocation entries from existing CRLs: %v", err), 1)
 	}
 
+	// Determine CRL number to use, either from flag or by incrementing existing highest number
 	var numberStr = c.String("number")
-
 	if numberStr != "" {
 		// if a CRL number is explicitly provided, use that
 		crlNumber, _ = new(big.Int).SetString(numberStr, 10)
@@ -211,6 +218,7 @@ func cmdCreate(_ context.Context, c *cli.Command) error {
 		return cli.Exit("output path must be specified when outputting DER format CRL", 1)
 	}
 
+	// Create the CRL
 	err = crl.CreateCRL(crt, key, &crl.CreateCRLParams{
 		SerialsInclude: serialsInclude,
 		SerialsIgnore:  serialsIgnore,
