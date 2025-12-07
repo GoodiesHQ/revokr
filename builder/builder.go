@@ -1,5 +1,12 @@
-// goodies go builder
 package main
+
+/*
+   A generic builder program to help build go packages
+   Includes:
+     - Version detection via "VERSION" file or --version <version>
+     - Build for windows/mac/linux on amd64/arm64
+     - Creates .tar.gz for mac/linux with files set to executable permissions and a .zip for Windows
+*/
 
 import (
 	"archive/tar"
@@ -33,7 +40,8 @@ type BuildTarget struct {
 	Arch string
 }
 
-var targets = []BuildTarget{
+// default supported build buildTargets
+var buildTargetsDefault = []BuildTarget{
 	{"linux", "amd64"},
 	{"linux", "arm64"},
 	{"darwin", "amd64"},
@@ -45,10 +53,24 @@ var targets = []BuildTarget{
 // usage prints the usage information for the build script
 func usage() {
 	basename := filepath.Base(os.Args[0])
-	log.Printf("Usage: %s -name <binary name> [ -all ]\n", basename)
-	for _, target := range targets {
-		log.Printf("       > %s/%s\n", target.OS, target.Arch)
+	log.Printf("Usage:\n\n%s -name \"<binary name>\" [-all/-targets \"<targets>\">] [-release] [-v <version>]\n", basename)
+
+	log.Printf("\nOptions:\n")
+	log.Printf("  -name <string>       Name of the binary to build (required)\n")
+	log.Printf("  -out <string>        Output directory for built binaries (default: \"dist\")\n")
+	log.Printf("  -all                 Build for all default OS/ARCH targets (default: current OS/ARCH only)\n")
+	log.Printf("  -targets <string>    Build for specific OS/ARCH target(s) (format: os/arch, comma-separated for multiple)\n")
+	log.Printf("  -release             Build for release (stripped binaries)\n")
+	log.Printf("  -version <string>    Version to embed in the binary (overrides VERSION file)\n\n")
+
+	log.Printf("Default build targets (-all):\n")
+
+	var targetNames []string
+	for _, target := range buildTargetsDefault {
+		targetNames = append(targetNames, fmt.Sprintf("%s/%s", target.OS, target.Arch))
 	}
+
+	fmt.Println("  " + strings.Join(targetNames, ", "))
 }
 
 func main() {
@@ -58,10 +80,44 @@ func main() {
 	name := flag.String("name", "", "name of the binary project")
 	out := flag.String("out", DIST_DIR, "output directory for built binaries")
 	all := flag.Bool("all", false, "build for all supported OS/ARCH targets")
+	targets := flag.String("targets", "", "specific OS/ARCH target to build (format: os/arch)")
 	release := flag.Bool("release", false, "build for release (stripped binaries)")
 	version := flag.String("version", "", "version to embed in the binary (overrides VERSION file)")
 
 	flag.Parse()
+
+	if *targets != "" && *all {
+		log.Printf("Error: cannot specify both -targets and -all flags\n")
+		usage()
+		os.Exit(1)
+	}
+
+	var buildTargets []BuildTarget
+
+	// If a specific target is provided, override the targets list
+	if *targets != "" {
+		targetsList := strings.Split(*targets, "/")
+		buildTargets = []BuildTarget{}
+
+		for _, target := range targetsList {
+			parts := strings.Split(target, "/")
+			if len(parts) != 2 {
+				log.Printf("Error: invalid target format '%s'. Expected os/arch\n", target)
+				usage()
+				os.Exit(1)
+			}
+			buildTargets = append(buildTargets, BuildTarget{
+				OS: parts[0], Arch: parts[1],
+			})
+		}
+	} else if !*all {
+		// If not building for all targets, limit to current OS/ARCH
+		buildTargets = []BuildTarget{
+			{OS: runtime.GOOS, Arch: runtime.GOARCH},
+		}
+	} else {
+		buildTargets = buildTargetsDefault
+	}
 
 	// Set output directory if provided, use "dist" as default
 	if out != nil && *out != "" {
@@ -74,13 +130,6 @@ func main() {
 		os.Exit(1)
 	}
 	BINARY_NAME = *name
-
-	// If not building for all targets, limit to current OS/ARCH
-	if !*all {
-		targets = []BuildTarget{
-			{OS: runtime.GOOS, Arch: runtime.GOARCH},
-		}
-	}
 
 	// Read version from VERSION file, use default if not found
 	v, err := readVersion()
@@ -100,7 +149,7 @@ func main() {
 
 	var wg sync.WaitGroup
 
-	for _, target := range targets {
+	for _, target := range buildTargets {
 		wg.Add(1)
 		go func() {
 			prefix := fmt.Sprintf(
