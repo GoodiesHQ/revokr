@@ -39,10 +39,9 @@ func init() {
 				Usage:   "Output file to write results to (default: stdout)",
 			},
 			&cli.StringFlag{
-				Name:     "number",
-				Usage:    "CRL number to use. If --extend/-x is used and finds a valid CRL with a positive CRL number, this value is ignored",
-				Value:    "1",
-				Required: false,
+				Name:  "number",
+				Usage: "CRL number to use. If --extend/-x is used and finds a valid CRL with a positive CRL number, this value is ignored",
+				Value: "1",
 			},
 			&cli.StringSliceFlag{
 				Name:    "extend",
@@ -50,22 +49,23 @@ func init() {
 				Usage:   "Path to one or more existing CRLs to copy and extend. The new CRL inherets all revoked serials from each and increments the CRL number accordingly (ignores --number/-n flag)",
 			},
 			&cli.StringFlag{
-				Name:     "crt",
-				Aliases:  []string{"c"},
-				Usage:    "issuing certificate file",
-				Required: true,
+				Name:    "crt",
+				Aliases: []string{"c"},
+				Usage:   "issuing certificate file",
 			},
 			&cli.StringFlag{
-				Name:     "key",
-				Aliases:  []string{"k"},
-				Usage:    "issuing certificate private key file",
-				Required: true,
+				Name:    "key",
+				Aliases: []string{"k"},
+				Usage:   "issuing certificate private key file",
 			},
 			&cli.StringFlag{
-				Name:     "serials",
-				Aliases:  []string{"s"},
-				Usage:    "file containing list of serial numbers (in hexadecimal) to include in the CRL",
-				Required: true,
+				Name:    "serials",
+				Aliases: []string{"s"},
+				Usage:   "file containing list of serial numbers (in hexadecimal) to include in the CRL",
+			},
+			&cli.BoolFlag{
+				Name:  "pem",
+				Usage: "output the CRL in PEM format. If not set, the CRL will be output in DER format",
 			},
 			&cli.StringFlag{
 				Name:    "ignore",
@@ -107,14 +107,23 @@ func main() {
 }
 
 func cmdCreate(_ context.Context, c *cli.Command) error {
-	serialsInclude, err := utils.ReadSerialNumbersFromFile(c.String("serials"))
-	if err != nil {
-		return cli.Exit(fmt.Sprintf("failed to read serials file: %v", err), 1)
+	var serialsInclude, serialsIgnore []string
+	var err error
+
+	serialsPath := c.String("serials")
+	if serialsPath != "" {
+		serialsInclude, err = utils.ReadSerialNumbersFromFile(serialsPath)
+		if err != nil {
+			return cli.Exit(fmt.Sprintf("failed to read serials file: %v", err), 1)
+		}
 	}
 
-	serialsIgnore, err := utils.ReadSerialNumbersFromFile(c.String("ignore"))
-	if err != nil {
-		return cli.Exit(fmt.Sprintf("failed to read ignore serials file: %v", err), 1)
+	ignorePath := c.String("ignore")
+	if ignorePath != "" {
+		serialsIgnore, err = utils.ReadSerialNumbersFromFile(c.String("ignore"))
+		if err != nil {
+			return cli.Exit(fmt.Sprintf("failed to read ignore file: %v", err), 1)
+		}
 	}
 
 	issuerCrtPath := c.String("crt")
@@ -154,12 +163,18 @@ func cmdCreate(_ context.Context, c *cli.Command) error {
 		crlNumber = int64(c.Uint64("number"))
 	}
 
+	outPath := c.String("out")
+	pem := c.Bool("pem")
+	if !pem && outPath == "" {
+		return cli.Exit("output path must be specified when outputting DER format CRL", 1)
+	}
+
 	err = crl.CreateCRL(crt, key, &crl.CreateCRLParams{
 		SerialsInclude: serialsInclude,
 		SerialsIgnore:  serialsIgnore,
 		Entries:        entries,
 		OutPath:        c.String("out"),
-		OutDER:         false,
+		OutPEM:         pem,
 		CRLNumber:      crlNumber,
 		ThisUpdate:     updateThisStr,
 		NextUpdate:     updateNextStr,

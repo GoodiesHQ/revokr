@@ -16,7 +16,7 @@ type CreateCRLParams struct {
 	SerialsIgnore  []string
 	Entries        []x509.RevocationListEntry
 	OutPath        string
-	OutDER         bool
+	OutPEM         bool
 	CRLNumber      int64
 	ThisUpdate     time.Time
 	NextUpdate     time.Time
@@ -79,7 +79,7 @@ func CreateCRL(crt *x509.Certificate, key crypto.Signer, params *CreateCRLParams
 	}
 
 	var outData []byte
-	if !params.OutDER || params.OutPath == "" {
+	if params.OutPEM {
 		outData = pem.EncodeToMemory(&pem.Block{
 			Type:  "X509 CRL",
 			Bytes: crl,
@@ -89,6 +89,9 @@ func CreateCRL(crt *x509.Certificate, key crypto.Signer, params *CreateCRLParams
 	}
 
 	if params.OutPath == "" {
+		if !params.OutPEM {
+			return fmt.Errorf("output path must be specified when outputting DER format CRL")
+		}
 		fmt.Print(string(outData))
 		return nil
 	}
