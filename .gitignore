@@ -9,6 +9,7 @@
 *.dylib
 
 dist/
+.DS_Store
 
 # Any certs, keys, or crls used for test
 *.pem
