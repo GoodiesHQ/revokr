@@ -28,7 +28,7 @@ func init() {
 
 	app = &cli.Command{
 		Name:    "revokr",
-		Usage:   "A tool for assisting the management of revocation lists for certificates",
+		Usage:   "A tool for assisting in the management of certificate revocation lists",
 		Version: Version,
 		Action: func(ctx context.Context, c *cli.Command) error {
 			return cmdCreate(ctx, c)
