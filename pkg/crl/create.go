@@ -4,18 +4,20 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/x509"
-	"encoding/pem"
 	"fmt"
 	"math/big"
-	"os"
 	"time"
+
+	"github.com/goodieshq/revokr/pkg/util"
 )
 
 type CreateCRLParams struct {
 	SerialsInclude []string
 	SerialsIgnore  []string
 	Entries        []x509.RevocationListEntry
+	DigestPath     string
 	OutPath        string
+	TBS            bool
 	OutPEM         bool
 	CRLNumber      *big.Int
 	ThisUpdate     time.Time
@@ -23,6 +25,12 @@ type CreateCRLParams struct {
 }
 
 func CreateCRL(crt *x509.Certificate, key crypto.Signer, params *CreateCRLParams) error {
+	var err error
+
+	if !params.OutPEM && params.OutPath == "" {
+		return fmt.Errorf("output path must be specified when creating a DER format CRL")
+	}
+
 	var thisUpdate time.Time
 	if params.ThisUpdate.IsZero() {
 		thisUpdate = crt.NotBefore
@@ -66,33 +74,39 @@ func CreateCRL(crt *x509.Certificate, key crypto.Signer, params *CreateCRLParams
 		NextUpdate:                nextUpdate,
 	}
 
+	if params.TBS {
+		key, err = util.DummySigner(crt.PublicKey)
+		if err != nil {
+			return fmt.Errorf("failed to create dummy signer for TBS CRL: %w", err)
+		}
+	}
+
+	if key == nil {
+		return fmt.Errorf("private key or TBS is required to create CRL")
+	}
+
+	// Create the CRL
 	crl, err := x509.CreateRevocationList(rand.Reader, crlTemplate, crt, key)
 	if err != nil {
 		return fmt.Errorf("failed to create CRL: %w", err)
 	}
 
-	var outData []byte
-	if params.OutPEM {
-		outData = pem.EncodeToMemory(&pem.Block{
-			Type:  "X509 CRL",
-			Bytes: crl,
-		})
-	} else {
-		outData = crl
-	}
-
-	if params.OutPath == "" {
-		if !params.OutPEM {
-			return fmt.Errorf("output path must be specified when outputting DER format CRL")
+	if params.TBS {
+		crl, err = util.ExtractTBS(crl)
+		if err != nil {
+			return fmt.Errorf("failed to extract TBS from CRL: %w", err)
 		}
-		fmt.Print(string(outData))
-		return nil
+
+		_, h, err := util.GetSignatureAlgAndHash(crt)
+		if err != nil {
+			return fmt.Errorf("failed to get hash for TBS CRL: %w", err)
+		}
+
+		digest := h.Sum(crl)
+		if err := util.WriteDigest(params.DigestPath, digest, false); err != nil {
+			return fmt.Errorf("failed to write TBS CRL digest: %w", err)
+		}
 	}
 
-	err = os.WriteFile(params.OutPath, outData, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to write CRL to file: %w", err)
-	}
-
-	return nil
+	return util.WriteCRL(params.OutPath, crl, params.OutPEM)
 }

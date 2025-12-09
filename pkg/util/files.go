@@ -3,6 +3,7 @@ package util
 import (
 	"crypto"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -58,6 +59,20 @@ func isLegacyEncryptedPEMBlock(block *pem.Block) bool {
 	}
 
 	return false
+}
+
+func ParseTBSCRL(path string) (*asn1.RawValue, error) {
+	// Read and parse the TBS CRL file
+	block, err := TryParsePEM(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read TBS CRL file: %w", err)
+	}
+	var tbs asn1.RawValue
+	if _, err := asn1.Unmarshal(block.Bytes, &tbs); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal TBS CRL data: %w", err)
+	}
+
+	return &tbs, nil
 }
 
 func ParsePrivateSigner(path, password string) (crypto.Signer, error) {
@@ -139,4 +154,58 @@ func ParsePrivateSigner(path, password string) (crypto.Signer, error) {
 	}
 
 	return key, nil
+}
+
+func WriteDigest(path string, crl []byte, encodeAsPEM bool) error {
+	var outData []byte
+	if encodeAsPEM {
+		outData = pem.EncodeToMemory(&pem.Block{
+			Type:  "X509 CRL DIGEST",
+			Bytes: crl,
+		})
+	} else {
+		outData = crl
+	}
+
+	if path == "" {
+		if !encodeAsPEM {
+			return fmt.Errorf("output path must be specified when outputting DER format CRL")
+		}
+		fmt.Println(string(outData))
+		return nil
+	}
+
+	err := os.WriteFile(path, outData, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write CRL to file: %w", err)
+	}
+
+	return nil
+}
+
+func WriteCRL(path string, crl []byte, encodeAsPEM bool) error {
+	var outData []byte
+	if encodeAsPEM {
+		outData = pem.EncodeToMemory(&pem.Block{
+			Type:  "X509 CRL",
+			Bytes: crl,
+		})
+	} else {
+		outData = crl
+	}
+
+	if path == "" {
+		if !encodeAsPEM {
+			return fmt.Errorf("output path must be specified when outputting DER format CRL")
+		}
+		fmt.Print(string(outData))
+		return nil
+	}
+
+	err := os.WriteFile(path, outData, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write CRL to file: %w", err)
+	}
+
+	return nil
 }
