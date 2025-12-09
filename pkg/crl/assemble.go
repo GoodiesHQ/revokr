@@ -9,33 +9,26 @@ import (
 )
 
 type AssembleCRLParams struct {
-	Crt       *x509.Certificate
-	TBS       *asn1.RawValue
-	Signature []byte
-	OutPath   string
-	OutPEM    bool
+	OutPath string
+	OutPEM  bool
 }
 
-func AssembleCRL(crt *x509.Certificate, params *AssembleCRLParams) error {
+func AssembleCRL(crt *x509.Certificate, tbs asn1.RawValue, signature []byte, params *AssembleCRLParams) error {
 	sigAlgo, _, err := util.GetSignatureAlgAndHash(crt)
 	if err != nil {
 		return fmt.Errorf("failed to get signature algorithm: %w", err)
 	}
 
-	if params.TBS == nil {
-		return fmt.Errorf("TBS data must be provided")
-	}
-
-	if params.Signature == nil {
-		return fmt.Errorf("signature data must be provided")
+	if len(signature) == 0 {
+		return fmt.Errorf("signature data is empty")
 	}
 
 	rcrl := &util.RawCRL{
-		TBS:                *params.TBS,
+		TBS:                tbs,
 		SignatureAlgorithm: sigAlgo,
 		SignatureValue: asn1.BitString{
-			Bytes:     params.Signature,
-			BitLength: len(params.Signature) * 8,
+			Bytes:     signature,
+			BitLength: len(signature) * 8,
 		},
 	}
 

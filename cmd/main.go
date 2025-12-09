@@ -190,17 +190,18 @@ func cmdAssemble(_ context.Context, c *cli.Command) error {
 	}
 
 	issuerCrtPath := c.String("crt")
+	if issuerCrtPath == "" {
+		return cli.Exit("issuer certificate path must be specified with --crt/-c", 1)
+	}
+
 	crt, err := util.ParseCertificate(issuerCrtPath)
 	if err != nil {
 		return cli.Exit(fmt.Sprintf("failed to parse issuer certificate: %v", err), 1)
 	}
 
-	err = crl.AssembleCRL(crt, &crl.AssembleCRLParams{
-		Crt:       crt,
-		TBS:       tbs,
-		Signature: signature,
-		OutPath:   c.String("out"),
-		OutPEM:    c.Bool("pem"),
+	err = crl.AssembleCRL(crt, *tbs, signature, &crl.AssembleCRLParams{
+		OutPath: c.String("out"),
+		OutPEM:  c.Bool("pem"),
 	})
 	if err != nil {
 		return cli.Exit(fmt.Sprintf("failed to assemble CRL: %v", err), 1)
