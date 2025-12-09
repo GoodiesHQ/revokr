@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/x509"
 	"encoding/asn1"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -156,26 +157,15 @@ func ParsePrivateSigner(path, password string) (crypto.Signer, error) {
 	return key, nil
 }
 
-func WriteDigest(path string, crl []byte, encodeAsPEM bool) error {
-	var outData []byte
-	if encodeAsPEM {
-		outData = pem.EncodeToMemory(&pem.Block{
-			Type:  "X509 CRL DIGEST",
-			Bytes: crl,
-		})
-	} else {
-		outData = crl
-	}
+func WriteDigest(path string, crl []byte) error {
+	outStr := base64.StdEncoding.EncodeToString(crl)
 
 	if path == "" {
-		if !encodeAsPEM {
-			return fmt.Errorf("output path must be specified when outputting DER format CRL")
-		}
-		fmt.Println(string(outData))
+		fmt.Println(outStr)
 		return nil
 	}
 
-	err := os.WriteFile(path, outData, 0644)
+	err := os.WriteFile(path, []byte(outStr), 0644)
 	if err != nil {
 		return fmt.Errorf("failed to write CRL to file: %w", err)
 	}

@@ -103,7 +103,7 @@ func CreateCRL(crt *x509.Certificate, key crypto.Signer, params *CreateCRLParams
 		}
 
 		digest := h.Sum(crl)
-		if err := util.WriteDigest(params.DigestPath, digest, false); err != nil {
+		if err := util.WriteDigest(params.DigestPath, digest); err != nil {
 			return fmt.Errorf("failed to write TBS CRL digest: %w", err)
 		}
 	}
